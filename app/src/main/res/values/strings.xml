@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">BlurViewAndroid</string>
+    <string name="image_title">Lena</string>
+    <string name="touch_image_tip">触摸图片显示原图</string>
+    <string name="blur_radius">"模糊半径"</string>
+    <string name="sample_size">"采样大小"</string>
+    <string name="exclude_title">"不模糊标题"</string>
 </resources>
