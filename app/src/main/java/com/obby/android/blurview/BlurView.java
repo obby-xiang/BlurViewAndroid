@@ -279,6 +279,8 @@ public class BlurView extends View {
 
         super.draw(canvas);
 
+        canvas.saveLayer(0, 0, getWidth(), getHeight(), requirePaint());
+
         if (mBlurRenderNode != null && canvas.isHardwareAccelerated()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 canvas.drawRenderNode(mBlurRenderNode);
@@ -288,6 +290,11 @@ public class BlurView extends View {
                 canvas.drawBitmap(mBlurBitmap, requireBitmapTransform(), null);
             }
         }
+
+        // 处理不模糊区域
+        applyViewExcludes(canvas);
+
+        canvas.restore();
     }
 
     /**
@@ -300,7 +307,7 @@ public class BlurView extends View {
     /**
      * 更新模糊
      *
-     * @param invalidate 是否重绘
+     * @param invalidate 是否重绘视图
      */
     private void update(boolean invalidate) {
         if (!isShown() || !canBlur()) {
@@ -309,23 +316,26 @@ public class BlurView extends View {
 
         mIsUpdating = true;
 
+        final boolean shouldInvalidate;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isHardwareAccelerated()) {
-            blurApi31();
+            shouldInvalidate = blurApi31();
         } else {
-            blur();
+            shouldInvalidate = blur();
         }
 
         mIsUpdating = false;
 
-        if (invalidate) {
+        if (invalidate || shouldInvalidate) {
             invalidate();
         }
     }
 
     /**
      * 模糊视图处理
+     *
+     * @return 是否重绘视图
      */
-    private void blur() {
+    private boolean blur() {
         if (mRenderScript == null) {
             mRenderScript = RenderScript.create(getContext());
         }
@@ -333,7 +343,6 @@ public class BlurView extends View {
         final Bitmap viewBitmap = createViewBitmap();
         final Allocation allocIn = Allocation.createFromBitmap(mRenderScript, viewBitmap);
         final Allocation allocOut = Allocation.createTyped(mRenderScript, allocIn.getType());
-        mBlurBitmap = resetBitmap(mBlurBitmap, viewBitmap.getWidth(), viewBitmap.getHeight());
 
         if (mBlurScript == null) {
             mBlurScript = ScriptIntrinsicBlur.create(mRenderScript, Element.U8_4(mRenderScript));
@@ -342,19 +351,25 @@ public class BlurView extends View {
         mBlurScript.setRadius(mBlurRadius);
         mBlurScript.setInput(allocIn);
         mBlurScript.forEach(allocOut);
+
+        final Bitmap oldBlurBitmap = mBlurBitmap;
+        mBlurBitmap = resetBitmap(mBlurBitmap, viewBitmap.getWidth(), viewBitmap.getHeight());
         allocOut.copyTo(mBlurBitmap);
 
         allocIn.destroy();
         allocOut.destroy();
-
         viewBitmap.recycle();
+
+        return mBlurBitmap != oldBlurBitmap;
     }
 
     /**
      * 模糊视图处理
+     *
+     * @return 是否重绘视图
      */
     @RequiresApi(api = Build.VERSION_CODES.S)
-    private void blurApi31() {
+    private boolean blurApi31() {
         if (mBlurRenderNode == null) {
             mBlurRenderNode = new RenderNode(TAG);
         } else {
@@ -363,9 +378,10 @@ public class BlurView extends View {
             }
         }
 
-        final Rect viewRect = getRelativeRectToRootView(this);
+        final Rect viewRect = getRectRelativeToRootView(this);
         mBlurRenderNode.setPosition(0, 0, viewRect.width(), viewRect.height());
 
+        final Bitmap oldViewBitmap = mViewBitmap;
         final Bitmap viewBitmap = createViewBitmap();
         final RecordingCanvas canvas = mBlurRenderNode.beginRecording();
         canvas.drawBitmap(viewBitmap, requireBitmapTransform(), null);
@@ -375,6 +391,8 @@ public class BlurView extends View {
         final RenderEffect blurEffect = RenderEffect.createBlurEffect(blurRadius, blurRadius,
                 Shader.TileMode.CLAMP);
         mBlurRenderNode.setRenderEffect(blurEffect);
+
+        return viewBitmap != oldViewBitmap;
     }
 
     /**
@@ -384,13 +402,12 @@ public class BlurView extends View {
      */
     @NonNull
     private Bitmap createViewBitmap() {
-        final Rect viewRect = getRelativeRectToRootView(this);
-        final int bitmapWidth = Math.max(viewRect.width() / mInSampleSize, 1);
-        final int bitmapHeight = Math.max(viewRect.height() / mInSampleSize, 1);
-
-        mViewBitmap = resetBitmap(mViewBitmap, bitmapWidth, bitmapHeight);
-
+        final Rect viewRect = getRectRelativeToRootView(this);
+        final int bitmapWidth = (int) Math.ceil((float) viewRect.width() / mInSampleSize);
+        final int bitmapHeight = (int) Math.ceil((float) viewRect.height() / mInSampleSize);
         final Canvas canvas = requireCanvas();
+
+        mViewBitmap = resetBitmap(mViewBitmap, Math.max(bitmapWidth, 1), Math.max(bitmapHeight, 1));
         canvas.setBitmap(mViewBitmap);
 
         // 调整画布
@@ -401,9 +418,6 @@ public class BlurView extends View {
         if (mRootView != null) {
             mRootView.draw(canvas);
         }
-
-        // 处理不模糊区域
-        applyViewExcludes(canvas);
 
         canvas.clipRect(viewRect);
         canvas.setBitmap(null);
@@ -423,7 +437,7 @@ public class BlurView extends View {
             return false;
         }
 
-        final Rect viewRect = getRelativeRectToRootView(this);
+        final Rect viewRect = getRectRelativeToRootView(this);
         if (viewRect.width() <= 0 || viewRect.height() <= 0) {
             return false;
         }
@@ -441,11 +455,14 @@ public class BlurView extends View {
             return;
         }
 
+        final Rect viewRect = getRectRelativeToRootView(this);
         final Paint paint = requirePaint();
         paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
         for (final View view : mViewExcludes) {
             if (view != null) {
-                canvas.drawRect(getRelativeRectToRootView(view), paint);
+                final Rect rect = getRectRelativeToRootView(view);
+                rect.offset(-viewRect.left, -viewRect.top);
+                canvas.drawRect(rect, paint);
             }
         }
     }
@@ -514,7 +531,8 @@ public class BlurView extends View {
     @NonNull
     private Bitmap resetBitmap(@Nullable final Bitmap bitmap, @IntRange(from = 1) final int width,
                                @IntRange(from = 1) final int height) {
-        if (bitmap == null || bitmap.isRecycled() || !bitmap.isMutable()) {
+        if (bitmap == null || bitmap.isRecycled() || !bitmap.isMutable()
+                || bitmap.getWidth() != width || bitmap.getHeight() != height) {
             if (bitmap != null && !bitmap.isRecycled()) {
                 bitmap.recycle();
             }
@@ -549,7 +567,7 @@ public class BlurView extends View {
      * @return 视图相对根视图的区域
      */
     @NonNull
-    private Rect getRelativeRectToRootView(@NonNull final View view) {
+    private Rect getRectRelativeToRootView(@NonNull final View view) {
         final Rect rect = new Rect();
         view.getDrawingRect(rect);
         if (mRootView != null) {
