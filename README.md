@@ -29,6 +29,7 @@ BlurView for Android.
       获取不模糊视图
 
 - 示例
+
   <img src="./screenshots/example.png" alt="example" width="512">
 
 - 参考
