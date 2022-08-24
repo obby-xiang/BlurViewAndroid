@@ -1,5 +1,6 @@
 package com.obby.android.blurview;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -21,8 +22,8 @@ import android.renderscript.RenderScript;
 import android.renderscript.ScriptIntrinsicBlur;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
+import android.view.Window;
 
 import androidx.annotation.FloatRange;
 import androidx.annotation.IntRange;
@@ -79,7 +80,7 @@ public class BlurView extends View {
     private final Set<View> mViewExcludes;
 
     @Nullable
-    private ViewGroup mRootView;
+    private View mRootView;
 
     private boolean mIsUpdating;
 
@@ -227,9 +228,8 @@ public class BlurView extends View {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        final View rootView = getRootView();
-        if (rootView instanceof ViewGroup) {
-            mRootView = (ViewGroup) rootView;
+        mRootView = getExactRootView();
+        if (mRootView != null) {
             mRootView.getViewTreeObserver().addOnPreDrawListener(mOnPreDrawListener);
         }
     }
@@ -310,7 +310,7 @@ public class BlurView extends View {
      * @param invalidate 是否重绘视图
      */
     private void update(boolean invalidate) {
-        if (!isShown() || !canBlur()) {
+        if (!isShown() || getWidth() <= 0 || getHeight() <= 0) {
             return;
         }
 
@@ -378,8 +378,7 @@ public class BlurView extends View {
             }
         }
 
-        final Rect viewRect = getRectRelativeToRootView(this);
-        mBlurRenderNode.setPosition(0, 0, viewRect.width(), viewRect.height());
+        mBlurRenderNode.setPosition(0, 0, getWidth(), getHeight());
 
         final Bitmap oldViewBitmap = mViewBitmap;
         final Bitmap viewBitmap = createViewBitmap();
@@ -402,7 +401,7 @@ public class BlurView extends View {
      */
     @NonNull
     private Bitmap createViewBitmap() {
-        final Rect viewRect = getRectRelativeToRootView(this);
+        final Rect viewRect = getRectRelativeToTarget(this, mRootView);
         final int bitmapWidth = (int) Math.ceil((float) viewRect.width() / mInSampleSize);
         final int bitmapHeight = (int) Math.ceil((float) viewRect.height() / mInSampleSize);
         final Canvas canvas = requireCanvas();
@@ -426,26 +425,6 @@ public class BlurView extends View {
     }
 
     /**
-     * 是否可以模糊
-     *
-     * @return 是否可以模糊
-     */
-    @SuppressWarnings("RedundantIfStatement")
-    private boolean canBlur() {
-        final Rect rootViewRect = getRootViewRect();
-        if (rootViewRect.width() <= 0 || rootViewRect.height() <= 0) {
-            return false;
-        }
-
-        final Rect viewRect = getRectRelativeToRootView(this);
-        if (viewRect.width() <= 0 || viewRect.height() <= 0) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
      * 应用不模糊视图区域到画布
      *
      * @param canvas 画布
@@ -455,14 +434,11 @@ public class BlurView extends View {
             return;
         }
 
-        final Rect viewRect = getRectRelativeToRootView(this);
         final Paint paint = requirePaint();
         paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
         for (final View view : mViewExcludes) {
             if (view != null) {
-                final Rect rect = getRectRelativeToRootView(view);
-                rect.offset(-viewRect.left, -viewRect.top);
-                canvas.drawRect(rect, paint);
+                canvas.drawRect(getRectRelativeToTarget(view, this), paint);
             }
         }
     }
@@ -547,32 +523,57 @@ public class BlurView extends View {
     }
 
     /**
-     * 获取根视图区域
+     * 获取视图相对目标视图的区域
      *
-     * @return 根视图区域
+     * @param view       视图
+     * @param targetView 目标视图
+     * @return 视图相对目标视图的区域
      */
     @NonNull
-    private Rect getRootViewRect() {
-        final Rect rect = new Rect();
-        if (mRootView != null) {
-            mRootView.getDrawingRect(rect);
+    private Rect getRectRelativeToTarget(@NonNull final View view,
+                                         @Nullable final View targetView) {
+        final Rect viewRect = getViewRect(view);
+
+        if (targetView != null) {
+            final Rect targetRect = getViewRect(targetView);
+            viewRect.offset(-targetRect.left, -targetRect.top);
         }
-        return rect;
+
+        return viewRect;
     }
 
     /**
-     * 获取视图相对根视图的区域
+     * 获取视图区域
      *
      * @param view 视图
-     * @return 视图相对根视图的区域
+     * @return 视图区域
      */
     @NonNull
-    private Rect getRectRelativeToRootView(@NonNull final View view) {
-        final Rect rect = new Rect();
-        view.getDrawingRect(rect);
-        if (mRootView != null) {
-            mRootView.offsetDescendantRectToMyCoords(view, rect);
+    private Rect getViewRect(@NonNull final View view) {
+        final int[] location = new int[2];
+        view.getLocationInWindow(location);
+        return new Rect(location[0], location[1], location[0] + view.getRight() - view.getLeft(),
+                location[1] + view.getBottom() - view.getTop());
+    }
+
+    /**
+     * 获取根视图
+     *
+     * @return 根视图
+     */
+    @Nullable
+    private View getExactRootView() {
+        final View rootView = getRootView();
+        if (rootView != null && rootView != this) {
+            return rootView;
         }
-        return rect;
+
+        final Context context = getContext();
+        if (!(context instanceof Activity)) {
+            return null;
+        }
+
+        final Window window = ((Activity) context).getWindow();
+        return window == null ? null : window.getDecorView();
     }
 }
