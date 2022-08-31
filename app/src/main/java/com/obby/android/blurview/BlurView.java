@@ -5,8 +5,9 @@ import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Matrix;
+import android.graphics.DrawFilter;
 import android.graphics.Paint;
+import android.graphics.PaintFlagsDrawFilter;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.RecordingCanvas;
@@ -89,9 +90,6 @@ public class BlurView extends View {
     private Paint mPaint;
 
     @Nullable
-    private Matrix mBitmapTransform;
-
-    @Nullable
     private RenderScript mRenderScript;
 
     @Nullable
@@ -105,6 +103,9 @@ public class BlurView extends View {
 
     @Nullable
     private RenderNode mBlurRenderNode;
+
+    private final DrawFilter mDrawFilter = new PaintFlagsDrawFilter(Paint.DITHER_FLAG,
+            Paint.FILTER_BITMAP_FLAG);
 
     private final ViewTreeObserver.OnPreDrawListener mOnPreDrawListener = () -> {
         update();
@@ -279,13 +280,19 @@ public class BlurView extends View {
 
         canvas.saveLayer(0, 0, getWidth(), getHeight(), requirePaint());
 
+        // 开启双线性插值优化缩放效果
+        canvas.setDrawFilter(mDrawFilter);
+
         if (mBlurRenderNode != null && canvas.isHardwareAccelerated()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 canvas.drawRenderNode(mBlurRenderNode);
             }
         } else {
             if (mBlurBitmap != null) {
-                canvas.drawBitmap(mBlurBitmap, requireBitmapTransform(), null);
+                canvas.save();
+                canvas.scale(mInSampleSize, mInSampleSize);
+                canvas.drawBitmap(mBlurBitmap, 0, 0, null);
+                canvas.restore();
             }
         }
 
@@ -381,7 +388,8 @@ public class BlurView extends View {
         final Bitmap oldViewBitmap = mViewBitmap;
         final Bitmap viewBitmap = createViewBitmap();
         final RecordingCanvas canvas = mBlurRenderNode.beginRecording();
-        canvas.drawBitmap(viewBitmap, requireBitmapTransform(), null);
+        canvas.scale(mInSampleSize, mInSampleSize);
+        canvas.drawBitmap(viewBitmap, 0, 0, null);
         mBlurRenderNode.endRecording();
 
         final float blurRadius = mBlurRadius * mInSampleSize;
@@ -439,24 +447,6 @@ public class BlurView extends View {
                 canvas.drawRect(ViewUtils.getRectRelativeToTarget(view, this), paint);
             }
         }
-    }
-
-    /**
-     * 获取位图转换矩阵
-     *
-     * @return 位图转换矩阵
-     */
-    @NonNull
-    private Matrix requireBitmapTransform() {
-        if (mBitmapTransform == null) {
-            mBitmapTransform = new Matrix();
-        } else {
-            mBitmapTransform.reset();
-        }
-
-        mBitmapTransform.setScale(mInSampleSize, mInSampleSize);
-
-        return mBitmapTransform;
     }
 
     /**
