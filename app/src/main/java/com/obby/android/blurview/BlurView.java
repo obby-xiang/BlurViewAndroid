@@ -79,7 +79,7 @@ public class BlurView extends View {
     private final Set<View> mViewExcludes;
 
     @Nullable
-    private View mWindowContentView;
+    private final View mWindowDecorView;
 
     private boolean mIsUpdating;
 
@@ -130,6 +130,7 @@ public class BlurView extends View {
     public BlurView(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
 
+        mWindowDecorView = ViewUtils.getWindowDecorView(context);
         mViewExcludes = new CopyOnWriteArraySet<>();
 
         final TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.BlurView);
@@ -227,18 +228,18 @@ public class BlurView extends View {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        mWindowContentView = ViewUtils.getWindowContentView(getContext());
-        if (mWindowContentView != null) {
-            mWindowContentView.getViewTreeObserver().addOnPreDrawListener(mOnPreDrawListener);
+        if (mWindowDecorView != null) {
+            mWindowDecorView.getViewTreeObserver().addOnPreDrawListener(mOnPreDrawListener);
         }
+
+        post(() -> update(true));
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        if (mWindowContentView != null) {
-            mWindowContentView.getViewTreeObserver().removeOnPreDrawListener(mOnPreDrawListener);
-            mWindowContentView = null;
+        if (mWindowDecorView != null) {
+            mWindowDecorView.getViewTreeObserver().removeOnPreDrawListener(mOnPreDrawListener);
         }
 
         if (mBlurRenderNode != null) {
@@ -407,7 +408,7 @@ public class BlurView extends View {
      */
     @NonNull
     private Bitmap createViewBitmap() {
-        final Rect viewRect = ViewUtils.getRectRelativeToTarget(this, mWindowContentView);
+        final Rect viewRect = ViewUtils.getRectRelativeToTarget(this, mWindowDecorView);
         final int bitmapWidth = (int) Math.ceil((float) viewRect.width() / mInSampleSize);
         final int bitmapHeight = (int) Math.ceil((float) viewRect.height() / mInSampleSize);
         final Canvas canvas = requireCanvas();
@@ -419,9 +420,9 @@ public class BlurView extends View {
         canvas.scale(1 / (float) mInSampleSize, 1 / (float) mInSampleSize);
         canvas.translate(-viewRect.left, -viewRect.top);
 
-        // 绘制窗口内容视图
-        if (mWindowContentView != null) {
-            mWindowContentView.draw(canvas);
+        // 绘制窗口视图
+        if (mWindowDecorView != null) {
+            mWindowDecorView.draw(canvas);
         }
 
         canvas.clipRect(viewRect);

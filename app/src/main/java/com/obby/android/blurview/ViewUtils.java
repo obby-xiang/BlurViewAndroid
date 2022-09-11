@@ -29,10 +29,10 @@ public final class ViewUtils {
     @NonNull
     public static Rect getRectRelativeToTarget(@Nullable final View view,
                                                @Nullable final View targetView) {
-        final Rect viewRect = getViewRect(view);
+        final Rect viewRect = getViewRectOnScreen(view);
 
         if (targetView != null) {
-            final Rect targetRect = getViewRect(targetView);
+            final Rect targetRect = getViewRectOnScreen(targetView);
             viewRect.offset(-targetRect.left, -targetRect.top);
         }
 
@@ -40,18 +40,18 @@ public final class ViewUtils {
     }
 
     /**
-     * 获取视图区域
+     * 获取视图在屏幕的区域
      *
      * @param view 视图
      * @return 视图区域
      */
     @NonNull
-    public static Rect getViewRect(@Nullable final View view) {
+    public static Rect getViewRectOnScreen(@Nullable final View view) {
         final Rect rect = new Rect();
 
         if (view != null) {
             final int[] location = new int[2];
-            view.getLocationInWindow(location);
+            view.getLocationOnScreen(location);
             rect.set(location[0], location[1], location[0] + view.getRight() - view.getLeft(),
                     location[1] + view.getBottom() - view.getTop());
         }
